@@ -36,7 +36,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dalefarnsworth/codeplug/debug"
+	"github.com/dalefarnsworth-dmr/debug"
 )
 
 var specialUsersURL = "http://registry.dstar.su/api/node.php"
