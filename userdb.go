@@ -25,6 +25,7 @@ package userdb
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -75,17 +76,19 @@ type Options struct {
 	RemoveMatchingNick bool
 	RemoveRepeats      bool
 	TitleCase          bool
+	FilterByCountries  bool
 }
 
 // User - A structure holding information about a user in the databae
 type User struct {
-	ID       int
-	Callsign string
-	Name     string
-	City     string
-	State    string
-	Nick     string
-	Country  string
+	ID          int
+	Callsign    string
+	Name        string
+	City        string
+	State       string
+	Nick        string
+	Country     string
+	fullCountry string
 }
 
 // UsersDB - A structure holding information about the database of DMR users
@@ -93,11 +96,12 @@ type UsersDB struct {
 	filename          string
 	getUsersFuncs     []func() ([]*User, error)
 	options           *Options
-	printFunc         func(*User) string
 	progressCallback  func(progressCounter int) error
 	progressFunc      func() error
 	progressIncrement int
 	progressCounter   int
+	users             []*User
+	IncludedCountries map[string]bool
 }
 
 var DefaultOptions = &Options{
@@ -115,18 +119,18 @@ var DefaultOptions = &Options{
 	TitleCase:          true,
 }
 
-var getInputUsersFuncs = []func() ([]*User, error){
-	getpd1wpUsers,
-	getFixedUsers,
-	getReflectorUsers,
-	getHamdigitalUsers,
-	getRadioidUsers,
-	getpd1wpUsersNames,
-	getOverrideUsers,
+var downloadMergedUsersFuncs = []func() ([]*User, error){
+	downloadpd1wpUsers,
+	downloadFixedUsers,
+	downloadReflectorUsers,
+	downloadHamdigitalUsers,
+	downloadRadioidUsers,
+	downloadpd1wpUsersNames,
+	downloadOverrideUsers,
 }
 
-var getCuratedUsersFuncs = []func() ([]*User, error){
-	getCuratedUsers,
+var downloadCuratedUsersFuncs = []func() ([]*User, error){
+	downloadCuratedUsers,
 }
 
 var stateAbbreviations map[string]string
@@ -180,30 +184,52 @@ func init() {
 	}
 }
 
-// Curated - Instantiate and initialize a new users db and return a pointer to it.
-func Curated() *UsersDB {
+// CuratedDB - Instantiate a new users db and download curated users
+func NewCuratedDB() (*UsersDB, error) {
 	db := &UsersDB{
 		progressFunc: func() error { return nil },
 	}
 
 	db.SetOptions(DefaultOptions)
-	db.getUsersFuncs = getCuratedUsersFuncs
+	db.getUsersFuncs = downloadCuratedUsersFuncs
+	err := db.getUsers()
+	if err != nil {
+		return nil, err
+	}
 
-	return db
+	return db, nil
 }
 
-var New = Curated
-
-// Input - Instantiate and initialize a new users db and return a pointer to it.
-func Input() *UsersDB {
+// MergedDB - Instantiate a new users db ready to merge various sources
+func NewMergedDB() (*UsersDB, error) {
 	db := &UsersDB{
 		progressFunc: func() error { return nil },
 	}
 
 	db.SetOptions(DefaultOptions)
-	db.getUsersFuncs = getInputUsersFuncs
+	db.getUsersFuncs = downloadMergedUsersFuncs
+	err := db.getUsers()
+	if err != nil {
+		return nil, err
+	}
 
-	return db
+	return db, nil
+}
+
+// FileDB - Instantiate a new userdb ready to read from a file
+func NewFileDB(path string) (*UsersDB, error) {
+	db := &UsersDB{
+		progressFunc: func() error { return nil },
+	}
+
+	db.SetOptions(DefaultOptions)
+	db.getUsersFuncs = readFileUsersFuncs(path)
+	err := db.getUsers()
+	if err != nil {
+		return nil, err
+	}
+
+	return db, nil
 }
 
 // SetOptions - Set the the desired options for processing the DMR database
@@ -245,6 +271,10 @@ func (db *UsersDB) finalProgress() {
 const (
 	MinProgress = 0
 	MaxProgress = 1000000
+)
+
+const (
+	MaxUV380Users = 122197
 )
 
 func AbbreviateCountry(country string) string {
@@ -315,6 +345,7 @@ func (u *User) amend(options *Options) {
 	} else {
 		u.Country = UnAbbreviateCountry(u.Country)
 	}
+	u.fullCountry = UnAbbreviateCountry(u.Country)
 	if options.AbbrevStates {
 		u.State = AbbreviateState(u.State)
 	} else {
@@ -339,6 +370,12 @@ func (u *User) amend(options *Options) {
 	}
 
 	u.normalize()
+}
+
+func (db *UsersDB) amendUsers() {
+	for _, u := range db.users {
+		u.amend(db.options)
+	}
 }
 
 func (u *User) normalize() {
@@ -541,7 +578,7 @@ func (u *User) fixStateCountries() {
 	}
 }
 
-func getURLBytes(url string) ([]byte, error) {
+func downloadURLBytes(url string) ([]byte, error) {
 	resp, err := client.Get(url)
 	if err != nil {
 		return nil, err
@@ -555,8 +592,8 @@ func getURLBytes(url string) ([]byte, error) {
 	return ioutil.ReadAll(resp.Body)
 }
 
-func getURLLines(url string) ([]string, error) {
-	bytes, err := getURLBytes(url)
+func downloadURLLines(url string) ([]string, error) {
+	bytes, err := downloadURLBytes(url)
 	if err != nil {
 		return nil, err
 	}
@@ -580,8 +617,8 @@ type RadioidUser struct {
 	Country  string `json:"country"`
 }
 
-func getRadioidUsers() ([]*User, error) {
-	bytes, err := getURLBytes(radioidUsersURL)
+func downloadRadioidUsers() ([]*User, error) {
+	bytes, err := downloadURLBytes(radioidUsersURL)
 	if err != nil {
 		return nil, err
 	}
@@ -589,7 +626,7 @@ func getRadioidUsers() ([]*User, error) {
 	var top RadioidTop
 	err = json.Unmarshal(bytes, &top)
 	if err != nil {
-		errFmt := "error getting radioid users database: %s: %s"
+		errFmt := "error downloading radioid users database: %s: %s"
 		err = fmt.Errorf(errFmt, radioidUsersURL, err.Error())
 		return nil, err
 	}
@@ -632,10 +669,10 @@ func stringToID(s string) (int, error) {
 	return int(id64), nil
 }
 
-func getHamdigitalUsers() ([]*User, error) {
-	lines, err := getURLLines(hamdigitalUsersURL)
+func downloadHamdigitalUsers() ([]*User, error) {
+	lines, err := downloadURLLines(hamdigitalUsersURL)
 	if err != nil {
-		errFmt := "error getting hamdigital users database: %s: %s"
+		errFmt := "error downloading hamdigital users database: %s: %s"
 		err = fmt.Errorf(errFmt, hamdigitalUsersURL, err.Error())
 		return nil, err
 	}
@@ -669,8 +706,8 @@ func getHamdigitalUsers() ([]*User, error) {
 	return users, nil
 }
 
-func getCuratedUsers() ([]*User, error) {
-	lines, err := getURLLines(curatedUsersURL)
+func downloadCuratedUsers() ([]*User, error) {
+	lines, err := downloadURLLines(curatedUsersURL)
 	if err != nil {
 		return nil, err
 	}
@@ -715,6 +752,9 @@ func linesToUsers(url string, lines []string) ([]*User, error) {
 			continue
 		}
 		if len(fields) != 7 {
+			if i == 0 {
+				continue
+			}
 			fmtStr := "%s:%d too many fields: %s"
 			if len(fields) < 7 {
 				fields = append(fields, []string{
@@ -746,8 +786,9 @@ func linesToUsers(url string, lines []string) ([]*User, error) {
 	return users, err
 }
 
-func newFileUsersFuncs(path string) (func() ([]*User, error), error) {
-	return func() ([]*User, error) {
+func readFileUsersFuncs(path string) []func() ([]*User, error) {
+	funcs := make([]func() ([]*User, error), 1)
+	funcs[0] = func() ([]*User, error) {
 		file, err := os.Open(path)
 		if err != nil {
 			return nil, err
@@ -765,24 +806,27 @@ func newFileUsersFuncs(path string) (func() ([]*User, error), error) {
 			return nil, err
 		}
 		return linesToUsers(path, lines)
-	}, nil
+	}
+	return funcs
 }
 
-func newURLUsersFuncs(uri string) (func() ([]*User, error), error) {
-	return func() ([]*User, error) {
-		lines, err := getURLLines(uri)
+func newURLUsersFuncs(uri string) []func() ([]*User, error) {
+	funcs := make([]func() ([]*User, error), 1)
+	funcs[0] = func() ([]*User, error) {
+		lines, err := downloadURLLines(uri)
 		if err != nil {
 			return nil, err
 		}
 
 		return linesToUsers(uri, lines)
-	}, nil
+	}
+	return funcs
 }
 
-func getFixedUsers() ([]*User, error) {
-	lines, err := getURLLines(fixedUsersURL)
+func downloadFixedUsers() ([]*User, error) {
+	lines, err := downloadURLLines(fixedUsersURL)
 	if err != nil {
-		errFmt := "getting fixed users: %s: %s"
+		errFmt := "downloading fixed users: %s: %s"
 		err = fmt.Errorf(errFmt, fixedUsersURL, err.Error())
 		return nil, err
 	}
@@ -805,10 +849,10 @@ func getFixedUsers() ([]*User, error) {
 	return users, nil
 }
 
-func getpd1wpUsers() ([]*User, error) {
-	lines, err := getURLLines(pd1wpUsersURL)
+func downloadpd1wpUsers() ([]*User, error) {
+	lines, err := downloadURLLines(pd1wpUsersURL)
 	if err != nil {
-		errFmt := "getting pd1wp users: %s: %s"
+		errFmt := "downloading pd1wp users: %s: %s"
 		err = fmt.Errorf(errFmt, pd1wpUsersURL, err.Error())
 		return nil, err
 	}
@@ -836,10 +880,10 @@ func getpd1wpUsers() ([]*User, error) {
 	return users, nil
 }
 
-func getpd1wpUsersNames() ([]*User, error) {
-	lines, err := getURLLines(pd1wpUsersURL)
+func downloadpd1wpUsersNames() ([]*User, error) {
+	lines, err := downloadURLLines(pd1wpUsersURL)
 	if err != nil {
-		errFmt := "getting pd1wp users: %s: %s"
+		errFmt := "downloading pd1wp users: %s: %s"
 		err = fmt.Errorf(errFmt, pd1wpUsersURL, err.Error())
 		return nil, err
 	}
@@ -863,10 +907,10 @@ func getpd1wpUsersNames() ([]*User, error) {
 	return users, nil
 }
 
-func getOverrideUsers() ([]*User, error) {
-	lines, err := getURLLines(overrideUsersURL)
+func downloadOverrideUsers() ([]*User, error) {
+	lines, err := downloadURLLines(overrideUsersURL)
 	if err != nil {
-		errFmt := "getting override users: %s: %s"
+		errFmt := "downloading override users: %s: %s"
 		err = fmt.Errorf(errFmt, overrideUsersURL, err.Error())
 		return nil, err
 	}
@@ -900,8 +944,8 @@ type special struct {
 	Address string
 }
 
-func getSpecialURLs() ([]string, error) {
-	bytes, err := getURLBytes(specialUsersURL)
+func downloadSpecialURLs() ([]string, error) {
+	bytes, err := downloadURLBytes(specialUsersURL)
 	if err != nil {
 		return nil, err
 	}
@@ -918,10 +962,10 @@ func getSpecialURLs() ([]string, error) {
 	return urls, nil
 }
 
-func getSpecialUsers(url string) ([]*User, error) {
-	lines, err := getURLLines(url)
+func downloadSpecialUsers(url string) ([]*User, error) {
+	lines, err := downloadURLLines(url)
 	if err != nil {
-		errFmt := "getting special users: %s: %s"
+		errFmt := "downloading special users: %s: %s"
 		err = fmt.Errorf(errFmt, url, err.Error())
 		return nil, nil // Ignore erros on special users
 	}
@@ -946,10 +990,10 @@ func getSpecialUsers(url string) ([]*User, error) {
 	return users, nil
 }
 
-func getReflectorUsers() ([]*User, error) {
-	lines, err := getURLLines(reflectorUsersURL)
+func downloadReflectorUsers() ([]*User, error) {
+	lines, err := downloadURLLines(reflectorUsersURL)
 	if err != nil {
-		errFmt := "getting reflector users: %s: %s"
+		errFmt := "downloading reflector users: %s: %s"
 		err = fmt.Errorf(errFmt, reflectorUsersURL, err.Error())
 		return nil, err
 	}
@@ -973,9 +1017,9 @@ func getReflectorUsers() ([]*User, error) {
 	return users, nil
 }
 
-func mergeAndSort(users []*User, opts *Options) []*User {
+func (db *UsersDB) mergeAndSortUsers() {
 	idMap := make(map[int]*User)
-	for _, u := range users {
+	for _, u := range db.users {
 		if u == nil || u.ID == 0 {
 			continue
 		}
@@ -1007,22 +1051,18 @@ func mergeAndSort(users []*User, opts *Options) []*User {
 		idMap[id] = existing
 	}
 
-	for _, u := range idMap {
-		u.amend(opts)
-	}
-
 	ids := make([]int, 0, len(idMap))
 	for id := range idMap {
 		ids = append(ids, id)
 	}
 
-	users = make([]*User, len(ids))
+	users := make([]*User, len(ids))
 	sort.Ints(ids)
 	for i, id := range ids {
 		users[i] = idMap[id]
 	}
 
-	return users
+	db.users = users
 }
 
 type result struct {
@@ -1039,20 +1079,8 @@ func do(index int, f func() ([]*User, error), resultChan chan result) {
 	resultChan <- r
 }
 
-// CuratedUsers - Return a slice containing the PD1WP list of DMR users
-func (db *UsersDB) CuratedUsers() ([]*User, error) {
-	db.getUsersFuncs = getCuratedUsersFuncs
-	return db.Users()
-}
-
-func (db *UsersDB) InputUsers() ([]*User, error) {
-	db.getUsersFuncs = getInputUsersFuncs
-	return db.Users()
-}
-
-// Users - Return the best current list of DMR users
-func (db *UsersDB) Users() ([]*User, error) {
-	var users []*User
+// getUsers - Return the best current list of DMR users
+func (db *UsersDB) getUsers() error {
 	resultCount := len(db.getUsersFuncs)
 	resultChan := make(chan result, resultCount)
 
@@ -1067,61 +1095,145 @@ func (db *UsersDB) Users() ([]*User, error) {
 		select {
 		case r := <-resultChan:
 			if r.err != nil {
-				return nil, r.err
+				return r.err
 			}
 			results[r.index] = r
 			done++
 			err := db.progressFunc()
 			if err != nil {
-				return nil, err
+				return err
 			}
 		}
 	}
 	for _, r := range results {
-		users = append(users, r.users...)
+		db.users = append(db.users, r.users...)
 	}
 
-	users = mergeAndSort(users, db.options)
+	db.mergeAndSortUsers()
 
 	db.finalProgress()
-
-	return users, nil
+	return nil
 }
 
-func (db *UsersDB) writeSized() (err error) {
-	file, err := os.Create(db.filename)
-	if err != nil {
-		return err
+// Users - Return the, possibly filtered, current list of DMR users
+func (db *UsersDB) Users() []*User {
+	db.amendUsers()
+
+	if !db.options.FilterByCountries {
+		return db.users
 	}
-	defer func() {
-		fErr := file.Close()
-		if err == nil {
-			err = fErr
+
+	users := make([]*User, 0)
+	for _, user := range db.users {
+		if db.IncludedCountries[user.fullCountry] {
+			users = append(users, user)
 		}
-		return
-	}()
-
-	users, err := db.Users()
-	if err != nil {
-		return err
 	}
+	return users
+}
 
+func (db *UsersDB) MD380String() string {
+	users := db.Users()
 	strs := make([]string, len(users))
 	for i, u := range users {
-		strs[i] = db.printFunc(u)
+		strs[i] = fmt.Sprintf("%d,%s,%s,%s,%s,%s,%s",
+			u.ID, u.Callsign, u.Name, u.City, u.State, u.Nick, u.Country)
+	}
+	return strings.Join(strs, "\n")
+}
+
+func (db *UsersDB) UV380Image() []byte {
+	users := db.Users()
+
+	if len(users) > MaxUV380Users {
+		users = users[:MaxUV380Users]
+	}
+	nUsers := len(users)
+
+	image := bytes.Repeat([]byte{0xff}, 0x1000000-0x200000)
+
+	image[0] = byte(nUsers >> 16)
+	image[1] = byte(nUsers >> 8)
+	image[2] = byte(nUsers)
+
+	lastHigh12 := -1
+	j := 0
+	for i, u := range users {
+		high12 := u.ID >> 12
+		if high12 == lastHigh12 {
+			continue
+		}
+		offset := 3 + j*4
+		index := i + 1
+		image[offset] = byte(u.ID >> 16)
+		image[offset+1] = byte(((u.ID >> 8) & 0xf0) | (index >> 16))
+		image[offset+2] = byte(index >> 8)
+		image[offset+3] = byte(index)
+		lastHigh12 = high12
+		j++
 	}
 
-	length := 0
-	for _, s := range strs {
-		length += len(s)
-	}
-	fmt.Fprintf(file, "%d\n", length)
+	for i, u := range users {
+		userOffset := 0x4003 + i*120
 
-	for _, s := range strs {
-		fmt.Fprint(file, s)
+		idOffset := userOffset
+		callOffset := userOffset + 4
+		restOffset := userOffset + 20
+
+		image[idOffset] = byte(u.ID)
+		image[idOffset+1] = byte(u.ID >> 8)
+		image[idOffset+2] = byte(u.ID >> 16)
+
+		zeros := bytes.Repeat([]byte{0}, 116)
+		copy(image[callOffset:callOffset+116], zeros)
+
+		copy(image[callOffset:callOffset+15], u.Callsign)
+
+		restFields := []string{
+			u.Name,
+			u.Nick,
+			u.City,
+			u.State,
+			u.Country,
+		}
+		rest := strings.Join(restFields, ",")
+		copy(image[restOffset:restOffset+99], rest)
 	}
 
-	return nil
+	// truncate image to 1KB boundary
+	end := (0x4003 + len(users)*120 + 1023) & ^1023
+
+	return image[:end]
+}
+
+func (db *UsersDB) AllCountries() ([]string, error) {
+	allUsers := db.users
+	if len(db.users) == 0 {
+		var err error
+		err = db.getUsers()
+		if err != nil {
+			return nil, err
+		}
+		allUsers = db.users
+	}
+
+	countriesMap := make(map[string]bool)
+	for _, user := range allUsers {
+		countriesMap[user.fullCountry] = true
+	}
+	countries := make([]string, 0)
+	for country := range countriesMap {
+		countries = append(countries, country)
+	}
+
+	return countries, nil
+}
+
+func (db *UsersDB) IncludeCountries(countries ...string) {
+	db.IncludedCountries = make(map[string]bool)
+	for _, country := range countries {
+		db.IncludedCountries[country] = true
+	}
 }
 
 func mergeUser(existing, u *User) *User {
@@ -1147,7 +1259,7 @@ func mergeUser(existing, u *User) *User {
 	return existing
 }
 
-func (db *UsersDB) write(header bool) (err error) {
+func (db *UsersDB) writeWithHeader() (err error) {
 	file, err := os.Create(db.filename)
 	if err != nil {
 		return err
@@ -1160,30 +1272,37 @@ func (db *UsersDB) write(header bool) (err error) {
 		return
 	}()
 
-	if header {
-		fmt.Fprintln(file, "Radio ID,CallSign,Name,City,State,Firstname,Country")
-	}
-
-	users, err := db.Users()
+	fmt.Fprintln(file, "Radio ID,CallSign,Name,City,State,Firstname,Country")
+	_, err = file.WriteString(db.MD380String())
 	if err != nil {
 		return err
-	}
-
-	for _, u := range users {
-		fmt.Fprint(file, db.printFunc(u))
 	}
 
 	return nil
 }
 
 // WriteMD380ToolsFile - Write a user db file in MD380 format
-func (db *UsersDB) WriteMD380ToolsFile(filename string, progress func(cur int) error) error {
-	db.filename = filename
-	db.progressCallback = progress
-	db.printFunc = func(u *User) string {
-		return fmt.Sprintf("%d,%s,%s,%s,%s,%s,%s\n",
-			u.ID, u.Callsign, u.Name, u.City, u.State, u.Nick, u.Country)
+func (db *UsersDB) WriteMD380ToolsFile(filename string) error {
+	file, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		fErr := file.Close()
+		if err == nil {
+			err = fErr
+		}
+		return
+	}()
+
+	str := db.MD380String()
+
+	fmt.Fprintf(file, "%d\n", len(str))
+
+	_, err = file.WriteString(str)
+	if err != nil {
+		return err
 	}
 
-	return db.writeSized()
+	return nil
 }
