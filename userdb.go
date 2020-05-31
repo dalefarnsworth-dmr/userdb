@@ -42,7 +42,7 @@ import (
 
 var specialUsersURL = "http://registry.dstar.su/api/node.php"
 var fixedUsersURL = "https://raw.githubusercontent.com/travisgoodspeed/md380tools/master/db/fixed.csv"
-var radioidUsersURL = "https://www.radioid.net/static/users.json"
+var radioidUsersURL = "https://database.radioid.net/static/users.json"
 var hamdigitalUsersURL = "https://ham-digital.org/status/users_quoted.csv"
 var reflectorUsersURL = "http://registry.dstar.su/reflector.db"
 var overrideUsersURL = "https://farnsworth.org/dale/md380tools/userdb/override.csv"
