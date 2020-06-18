@@ -1207,7 +1207,7 @@ func (db *UsersDB) UV380Image() []byte {
 }
 
 func (db *UsersDB) AllCountries() ([]string, error) {
-	allUsers := db.users
+	allUsers := db.Users()
 	if len(db.users) == 0 {
 		var err error
 		err = db.getUsers()
@@ -1225,6 +1225,8 @@ func (db *UsersDB) AllCountries() ([]string, error) {
 	for country := range countriesMap {
 		countries = append(countries, country)
 	}
+
+	sort.Strings(countries)
 
 	return countries, nil
 }
