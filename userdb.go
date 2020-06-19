@@ -133,16 +133,16 @@ var downloadCuratedUsersFuncs = []func() ([]*User, error){
 	downloadCuratedUsers,
 }
 
-var stateAbbreviations map[string]string
+var stateAbbreviations map[string]map[string]string
 var titleCaseMap map[string]string
 var reverseCountryAbbrevs map[string]string
-var reverseStateAbbrevs map[string]string
+var reverseStateAbbrevs map[string]map[string]string
 
 func init() {
-	stateAbbreviations = make(map[string]string)
+	stateAbbreviations = make(map[string]map[string]string)
 	titleCaseMap = make(map[string]string)
 	reverseCountryAbbrevs = make(map[string]string)
-	reverseStateAbbrevs = make(map[string]string)
+	reverseStateAbbrevs = make(map[string]map[string]string)
 
 	for c, ac := range countryAbbreviations {
 		existing := reverseCountryAbbrevs[ac]
@@ -153,13 +153,16 @@ func init() {
 		reverseCountryAbbrevs[ac] = c
 	}
 
-	for _, stateAbbreviations := range stateAbbreviationsByCountry {
+	for country, stateAbbreviations := range stateAbbreviationsByCountry {
 		for s, as := range stateAbbreviations {
-			existing := reverseStateAbbrevs[as]
+			existing := reverseStateAbbrevs[country][as]
 			if existing != "" {
 				l.Fatalf("%s has abbreviations %s & %s", as, existing, s)
 			}
-			reverseStateAbbrevs[as] = s
+			if reverseStateAbbrevs[country] == nil {
+				reverseStateAbbrevs[country] = make(map[string]string)
+			}
+			reverseStateAbbrevs[country][as] = s
 		}
 	}
 
@@ -173,9 +176,12 @@ func init() {
 		}
 	}
 
-	for _, stateAbbrevs := range stateAbbreviationsByCountry {
+	for country, stateAbbrevs := range stateAbbreviationsByCountry {
 		for state, abbrev := range stateAbbrevs {
-			stateAbbreviations[state] = abbrev
+			if stateAbbreviations[country] == nil {
+				stateAbbreviations[country] = make(map[string]string)
+			}
+			stateAbbreviations[country][state] = abbrev
 		}
 	}
 
@@ -295,8 +301,8 @@ func unAbbreviateCountry(abbrev string) string {
 	return country
 }
 
-func abbreviateState(state string) string {
-	abbrev, ok := stateAbbreviations[state]
+func abbreviateState(state, country string) string {
+	abbrev, ok := stateAbbreviations[country][state]
 	if !ok {
 		abbrev = state
 	}
@@ -304,8 +310,8 @@ func abbreviateState(state string) string {
 	return abbrev
 }
 
-func unAbbreviateState(abbrev string) string {
-	state, ok := reverseStateAbbrevs[abbrev]
+func unAbbreviateState(abbrev, country string) string {
+	state, ok := reverseStateAbbrevs[country][abbrev]
 	if !ok {
 		state = abbrev
 	}
@@ -347,9 +353,9 @@ func (u *User) amend(options *Options) {
 	}
 	u.fullCountry = unAbbreviateCountry(u.Country)
 	if options.AbbrevStates {
-		u.State = abbreviateState(u.State)
+		u.State = abbreviateState(u.State, u.fullCountry)
 	} else {
-		u.State = unAbbreviateState(u.State)
+		u.State = unAbbreviateState(u.State, u.fullCountry)
 	}
 	if options.AbbrevDirections {
 		u.City = abbreviateDirections(u.City)
