@@ -1145,6 +1145,7 @@ func (db *UsersDB) MD380String() string {
 		strs[i] = fmt.Sprintf("%d,%s,%s,%s,%s,%s,%s",
 			u.ID, u.Callsign, u.Name, u.City, u.State, u.Nick, u.Country)
 	}
+	strs[len(strs)-1] += "\n"
 	return strings.Join(strs, "\n")
 }
 
