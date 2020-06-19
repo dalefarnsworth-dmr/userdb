@@ -277,7 +277,7 @@ const (
 	MaxUV380Users = 122197
 )
 
-func AbbreviateCountry(country string) string {
+func abbreviateCountry(country string) string {
 	abbrev, ok := countryAbbreviations[country]
 	if !ok {
 		abbrev = country
@@ -286,7 +286,7 @@ func AbbreviateCountry(country string) string {
 	return abbrev
 }
 
-func UnAbbreviateCountry(abbrev string) string {
+func unAbbreviateCountry(abbrev string) string {
 	country, ok := reverseCountryAbbrevs[abbrev]
 	if !ok {
 		country = abbrev
@@ -295,7 +295,7 @@ func UnAbbreviateCountry(abbrev string) string {
 	return country
 }
 
-func AbbreviateState(state string) string {
+func abbreviateState(state string) string {
 	abbrev, ok := stateAbbreviations[state]
 	if !ok {
 		abbrev = state
@@ -304,7 +304,7 @@ func AbbreviateState(state string) string {
 	return abbrev
 }
 
-func UnAbbreviateState(abbrev string) string {
+func unAbbreviateState(abbrev string) string {
 	state, ok := reverseStateAbbrevs[abbrev]
 	if !ok {
 		state = abbrev
@@ -341,15 +341,15 @@ func (u *User) amend(options *Options) {
 		u.fixStateCountries()
 	}
 	if options.AbbrevCountries {
-		u.Country = AbbreviateCountry(u.Country)
+		u.Country = abbreviateCountry(u.Country)
 	} else {
-		u.Country = UnAbbreviateCountry(u.Country)
+		u.Country = unAbbreviateCountry(u.Country)
 	}
-	u.fullCountry = UnAbbreviateCountry(u.Country)
+	u.fullCountry = unAbbreviateCountry(u.Country)
 	if options.AbbrevStates {
-		u.State = AbbreviateState(u.State)
+		u.State = abbreviateState(u.State)
 	} else {
-		u.State = UnAbbreviateState(u.State)
+		u.State = unAbbreviateState(u.State)
 	}
 	if options.AbbrevDirections {
 		u.City = abbreviateDirections(u.City)
