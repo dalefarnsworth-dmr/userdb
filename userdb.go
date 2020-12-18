@@ -43,7 +43,6 @@ import (
 var specialUsersURL = "http://registry.dstar.su/api/node.php"
 var fixedUsersURL = "https://raw.githubusercontent.com/travisgoodspeed/md380tools/master/db/fixed.csv"
 var radioidUsersURL = "https://database.radioid.net/static/users.json"
-var hamdigitalUsersURL = "https://ham-digital.org/status/users_quoted.csv"
 var reflectorUsersURL = "http://registry.dstar.su/reflector.db"
 var overrideUsersURL = "https://farnsworth.org/dale/md380tools/userdb/override.csv"
 var pd1wpUsersURL = "https://farnsworth.org/dale/md380tools/userdb/pd1wp.csv"
@@ -123,7 +122,6 @@ var downloadMergedUsersFuncs = []func() ([]*User, error){
 	downloadpd1wpUsers,
 	downloadFixedUsers,
 	downloadReflectorUsers,
-	downloadHamdigitalUsers,
 	downloadRadioidUsers,
 	downloadpd1wpUsersNames,
 	downloadOverrideUsers,
@@ -673,43 +671,6 @@ func stringToID(s string) (int, error) {
 		return 0, err
 	}
 	return int(id64), nil
-}
-
-func downloadHamdigitalUsers() ([]*User, error) {
-	lines, err := downloadURLLines(hamdigitalUsersURL)
-	if err != nil {
-		errFmt := "error downloading hamdigital users database: %s: %s"
-		err = fmt.Errorf(errFmt, hamdigitalUsersURL, err.Error())
-		return nil, err
-	}
-
-	if len(lines) < 50000 {
-		errFmt := "too few hamdigital users database entries: %s: %d"
-		err = fmt.Errorf(errFmt, hamdigitalUsersURL, len(lines))
-		return nil, err
-	}
-
-	users := make([]*User, len(lines))
-	for i, line := range lines {
-		line = strings.Trim(line, `"`)
-		fields := strings.Split(line, `","`)
-		if len(fields) < 6 {
-			continue
-		}
-		id, err := stringToID(fields[0])
-		if err != nil {
-			return nil, err
-		}
-		users[i] = &User{
-			ID:       id,
-			Callsign: fields[1],
-			Name:     fields[2],
-			City:     fields[3],
-			State:    fields[4],
-			Country:  fields[5],
-		}
-	}
-	return users, nil
 }
 
 func downloadCuratedUsers() ([]*User, error) {
