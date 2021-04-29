@@ -624,9 +624,14 @@ func downloadURLLines(url string) ([]string, error) {
 		return nil, err
 	}
 
-	lines := strings.Split(string(bytes), "\n")
+	str := strings.ReplaceAll(string(bytes), "\r", "")
+	lines := strings.Split(str, "\n")
 
-	return lines[:len(lines)-1], nil
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	return lines, nil
 }
 
 type RadioidTop struct {
@@ -787,7 +792,9 @@ func readFileUsersFuncs(path string) []func() ([]*User, error) {
 		lines := make([]string, 0)
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
-			lines = append(lines, scanner.Text())
+			line := scanner.Text()
+			line = strings.ReplaceAll(line, "\r", "")
+			lines = append(lines, line)
 		}
 
 		err = scanner.Err()
