@@ -142,6 +142,7 @@ func init() {
 	reverseCountryAbbrevs = make(map[string]string)
 	reverseStateAbbrevs = make(map[string]map[string]string)
 
+	// make reverse country abbreviations
 	for c, ac := range countryAbbreviations {
 		existing := reverseCountryAbbrevs[ac]
 		if existing != "" {
@@ -151,8 +152,28 @@ func init() {
 		reverseCountryAbbrevs[ac] = c
 	}
 
+	// add alternate country spellings
+	for c, ac := range extraCountryAbbreviations {
+		countryAbbreviations[c] = ac
+	}
+
+	// Make country keys lower case
+	lowerCountryAbbreviations := make(map[string]string)
+	for country, ac := range countryAbbreviations {
+		lowerCountryAbbreviations[strings.ToLower(country)] = ac
+	}
+	countryAbbreviations = lowerCountryAbbreviations
+
+	lowerStateAbbreviationsByCountry := make(map[string]map[string]string)
+	for country, sa := range stateAbbreviationsByCountry {
+		lowerStateAbbreviationsByCountry[strings.ToLower(country)] = sa
+	}
+	stateAbbreviationsByCountry = lowerStateAbbreviationsByCountry
+
+	// make reverse state abbreviations
 	for country, stateAbbreviations := range stateAbbreviationsByCountry {
 		for s, as := range stateAbbreviations {
+			country = strings.ToLower(country)
 			existing := reverseStateAbbrevs[country][as]
 			if existing != "" {
 				l.Fatalf("%s has abbreviations %s & %s", as, existing, s)
@@ -164,18 +185,19 @@ func init() {
 		}
 	}
 
-	for c, ac := range extraCountryAbbreviations {
-		countryAbbreviations[c] = ac
-	}
-
-	for c, cMap := range extraStateAbbreviationsByCountry {
+	// add alternate state spellings
+	for country, cMap := range extraStateAbbreviationsByCountry {
+		country = strings.ToLower(country)
 		for s, sa := range cMap {
-			stateAbbreviationsByCountry[c][s] = sa
+			stateAbbreviationsByCountry[country][s] = sa
 		}
 	}
 
+	// create state abbreviations[country][state]
 	for country, stateAbbrevs := range stateAbbreviationsByCountry {
+		country = strings.ToLower(country)
 		for state, abbrev := range stateAbbrevs {
+			state = strings.ToLower(state)
 			if stateAbbreviations[country] == nil {
 				stateAbbreviations[country] = make(map[string]string)
 			}
@@ -282,7 +304,7 @@ const (
 )
 
 func abbreviateCountry(country string) string {
-	abbrev, ok := countryAbbreviations[country]
+	abbrev, ok := countryAbbreviations[strings.ToLower(country)]
 	if !ok {
 		abbrev = country
 	}
@@ -300,7 +322,7 @@ func unAbbreviateCountry(abbrev string) string {
 }
 
 func abbreviateState(state, country string) string {
-	abbrev, ok := stateAbbreviations[country][state]
+	abbrev, ok := stateAbbreviations[strings.ToLower(country)][strings.ToLower(state)]
 	if !ok {
 		abbrev = state
 	}
@@ -309,7 +331,7 @@ func abbreviateState(state, country string) string {
 }
 
 func unAbbreviateState(abbrev, country string) string {
-	state, ok := reverseStateAbbrevs[country][abbrev]
+	state, ok := reverseStateAbbrevs[strings.ToLower(country)][abbrev]
 	if !ok {
 		state = abbrev
 	}
