@@ -363,6 +363,7 @@ func (u *User) amend(options *Options) {
 	} else {
 		u.addNicks()
 	}
+	u.fullCountry = unAbbreviateCountry(u.Country)
 	if options.FixStateCountries {
 		u.fixStateCountries()
 	}
@@ -371,7 +372,6 @@ func (u *User) amend(options *Options) {
 	} else {
 		u.Country = unAbbreviateCountry(u.Country)
 	}
-	u.fullCountry = unAbbreviateCountry(u.Country)
 	if options.AbbrevStates {
 		u.State = abbreviateState(u.State, u.fullCountry)
 	} else {
@@ -575,30 +575,20 @@ func fixRomanNumerals(field string) string {
 	return field
 }
 
-func (u *User) usCallsign() bool {
-	runes := []rune(u.Callsign)
-	if strings.ContainsRune("KNW", runes[0]) {
-		return true
-	}
-
-	if runes[0] == 'A' && runes[1] >= 'A' && runes[1] <= 'L' {
-		return true
-	}
-
-	return false
-}
-
 func (u *User) fixStateCountries() {
 	for country, stateAbbrevs := range stateAbbreviationsByCountry {
 		for state := range stateAbbrevs {
-			if u.Country == state {
-				if state == "Georgia" && !u.usCallsign() {
+			if u.fullCountry == state {
+				if state == "Georgia" || state == "Luxembourg" {
+					continue
+				}
+				if countryAbbreviations[strings.ToLower(state)] != "" {
 					continue
 				}
 				if u.State == "" {
-					u.State = state
+					u.State = strings.Title(state)
 				}
-				u.Country = country
+				u.Country = strings.Title(country)
 			}
 		}
 	}
