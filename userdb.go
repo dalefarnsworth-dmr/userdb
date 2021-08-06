@@ -1245,6 +1245,259 @@ func (db *UsersDB) UV380Image() []byte {
 	return image[:end]
 }
 
+var stringMap map[string]int
+var cityMap map[string]int
+var stateMap map[string]int
+var countryMap map[string]int
+var callsignMap map[string]int
+
+var nodePoolOffset int
+
+const (
+	MagicNumber     = 0x300a01
+	MagicOffset     = 0
+	UserCountOffset = 3
+	ImageSizeOffset = 6
+	HeaderSize      = 9
+	IndexEntrySize  = 6
+	MaxImageSize    = (15 * 1024 * 1024)
+	MaxStringLength = 127
+
+	NameFlag     = 1 << 7
+	NicknameFlag = 1 << 6
+	CityFlag     = 1 << 5
+	StateFlag    = 1 << 4
+	CountryFlag  = 1 << 3
+
+	ShortCallsign = 7
+)
+
+type indexedImage struct {
+	image  []byte
+	offset int
+}
+
+func (ii *indexedImage) init(size int, max int) {
+	ii.image = make([]byte, size, max)
+}
+
+func (ii *indexedImage) setOffset(offset int) {
+	ii.offset = offset
+}
+
+func (ii indexedImage) bytes() []byte {
+	return ii.image
+}
+
+func (ii indexedImage) length() int {
+	return len(ii.image)
+}
+
+func (ii *indexedImage) appendFlag(flag int) {
+	ii.image = append(ii.image, byte(flag))
+}
+
+func (ii *indexedImage) append2ByteOffset(offset int) {
+	ii.image = append(ii.image, byte(offset>>8))
+	ii.image = append(ii.image, byte(offset))
+}
+
+func (ii *indexedImage) appendOffset(value int) {
+	ii.image = append(ii.image, byte(value>>16))
+	ii.image = append(ii.image, byte(value>>8))
+	ii.image = append(ii.image, byte(value))
+}
+
+func (ii *indexedImage) appendStringWithFlag(s string, flag int) {
+	if len(s) > MaxStringLength {
+		s = s[:MaxStringLength]
+	}
+	ii.image = append(ii.image, byte(flag|len(s)))
+	ii.image = append(ii.image, []byte(s)...)
+}
+
+func (ii *indexedImage) appendString(s string) {
+	ii.appendStringWithFlag(s, 0)
+}
+
+func (ii *indexedImage) store3(value int) {
+	ii.image[ii.offset] = byte(value >> 16)
+	ii.image[ii.offset+1] = byte(value >> 8)
+	ii.image[ii.offset+2] = byte(value)
+	ii.offset += 3
+}
+
+func id_value(id string) int {
+	i, _ := strconv.Atoi(id)
+	return i
+}
+
+func (ii *indexedImage) appendStringNode(s string) int {
+	if _, ok := stringMap[s]; !ok {
+		stringMap[s] = ii.length()
+		ii.appendString(s)
+	}
+	return stringMap[s]
+}
+
+func (ii *indexedImage) appendNameNode(name string) int {
+	return ii.appendStringNode(name)
+}
+
+func (ii *indexedImage) appendNicknameNode(nickname string) int {
+	return ii.appendStringNode(nickname)
+}
+
+func (ii *indexedImage) appendCityNode(city, state, country string) int {
+	s := strings.Join([]string{city, state, country}, ",")
+	if _, ok := cityMap[s]; !ok {
+		var stateOffset int
+		var countryOffset int
+
+		if len(state) > 0 {
+			stateOffset = ii.appendStateNode(state, country)
+		} else if len(country) > 0 {
+			countryOffset = ii.appendCountryNode(country)
+		}
+
+		cityMap[s] = ii.length()
+
+		ii.appendString(city)
+
+		if len(state) > 0 {
+			ii.appendOffset(stateOffset)
+		} else if len(country) > 0 {
+			ii.append2ByteOffset(countryOffset)
+		}
+	}
+	return cityMap[s]
+}
+
+func (ii *indexedImage) appendStateNode(state, country string) int {
+	s := strings.Join([]string{state, country}, ",")
+	if _, ok := stateMap[s]; !ok {
+		var countryOffset int
+
+		if len(country) > 0 {
+			countryOffset = ii.appendCountryNode(country)
+		}
+
+		stateMap[s] = ii.length()
+
+		ii.appendString(state)
+
+		if len(country) > 0 {
+			ii.append2ByteOffset(countryOffset)
+		}
+	}
+	return stateMap[s]
+}
+
+func (ii *indexedImage) appendCountryNode(country string) int {
+	return ii.appendStringNode(country) - nodePoolOffset
+}
+
+func (ii *indexedImage) appendCallsignNode(callsign, name, nickname, city, state, country string) int {
+	s := strings.Join([]string{callsign, name, nickname, city, state, country}, ",")
+	if _, ok := callsignMap[s]; !ok {
+		flag := 0
+
+		var nameOffset int
+		var nicknameOffset int
+		var cityOffset int
+		var stateOffset int
+		var countryOffset int
+
+		if len(name) > 0 {
+			flag |= NameFlag
+			nameOffset = ii.appendNameNode(name)
+		}
+
+		if len(nickname) > 0 {
+			flag |= NicknameFlag
+			nicknameOffset = ii.appendNicknameNode(nickname)
+		}
+
+		if len(city) > 0 {
+			flag |= CityFlag
+			cityOffset = ii.appendCityNode(city, state, country)
+		}
+		if len(state) > 0 {
+			flag |= StateFlag
+			stateOffset = ii.appendStateNode(state, country)
+		}
+		if len(country) > 0 {
+			flag |= CountryFlag
+			countryOffset = ii.appendCountryNode(country)
+		}
+
+		callsignMap[s] = ii.length()
+
+		if len(callsign) == 0 || len(callsign) > ShortCallsign {
+			ii.appendFlag(flag)
+			flag = 0
+		}
+
+		ii.appendStringWithFlag(callsign, flag)
+
+		if len(name) > 0 {
+			ii.appendOffset(nameOffset)
+		}
+
+		if (len(nickname)) > 0 {
+			ii.appendOffset(nicknameOffset)
+		}
+
+		if len(city) > 0 {
+			ii.appendOffset(cityOffset)
+		} else if len(state) > 0 {
+			ii.appendOffset(stateOffset)
+		} else if len(country) > 0 {
+			ii.append2ByteOffset(countryOffset)
+		}
+	}
+	return callsignMap[s]
+}
+
+func (db *UsersDB) MD380IndexedImage() []byte {
+	db.SetOptions(Abbreviate(false))
+
+	stringMap = make(map[string]int)
+	cityMap = make(map[string]int)
+	stateMap = make(map[string]int)
+	countryMap = make(map[string]int)
+	callsignMap = make(map[string]int)
+
+	users := db.Users()
+
+	nUsers := len(users)
+	nodePoolOffset = HeaderSize + nUsers*IndexEntrySize
+
+	var ii indexedImage
+	ii.init(nodePoolOffset, MaxImageSize)
+
+	// Add countries to node pool first so they'll have the smallest offsets
+	for _, u := range users {
+		if len(u.Country) > 1 {
+			ii.appendCountryNode(u.Country)
+		}
+	}
+
+	ii.setOffset(HeaderSize)
+	for _, u := range users {
+		callsignOffset := ii.appendCallsignNode(u.Callsign, u.Name, u.Nickname, u.City, u.State, u.Country)
+		ii.store3(u.ID)
+		ii.store3(callsignOffset)
+	}
+
+	ii.setOffset(MagicOffset)
+	ii.store3(MagicNumber)
+	ii.store3(nUsers)
+	ii.store3(ii.length())
+
+	return ii.bytes()
+}
+
 func (db *UsersDB) AllCountries() ([]string, error) {
 	allUsers := db.Users()
 	if len(db.users) == 0 {
