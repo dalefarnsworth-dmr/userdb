@@ -702,6 +702,7 @@ func downloadCuratedUsers() ([]*User, error) {
 		if len(fields) < 7 {
 			continue
 		}
+		unquoteFields(&fields)
 		id, err := stringToID(fields[0])
 		if err != nil {
 			return nil, err
@@ -719,12 +720,27 @@ func downloadCuratedUsers() ([]*User, error) {
 	return users, nil
 }
 
+func unquoteFields(fields *[]string) {
+	for i, field := range *fields {
+		if len(field) <= 2 {
+			continue
+		}
+		if field[0] == '"' && field[len(field)-1] == '"' {
+			(*fields)[i] = field[1 : len(field)-2]
+		}
+		if field[0] == '\'' && field[len(field)-1] == '\'' {
+			(*fields)[i] = field[1 : len(field)-2]
+		}
+	}
+}
+
 func linesToUsers(url string, lines []string) ([]*User, error) {
 	users := make([]*User, 0, len(lines))
 	errStrs := make([]string, 0)
 	for i, line := range lines {
 		fmtStr := ""
 		fields := strings.Split(line, ",")
+		unquoteFields(&fields)
 		id, err := strconv.ParseInt(fields[0], 10, 64)
 		if err != nil || id > 16777215 {
 			fmtStr = "%s%d invalid DMR ID value: %s"
@@ -823,6 +839,7 @@ func downloadFixedUsers() ([]*User, error) {
 		if len(fields) < 2 {
 			continue
 		}
+		unquoteFields(&fields)
 		id, err := stringToID(fields[0])
 		if err != nil {
 			return nil, err
@@ -849,6 +866,7 @@ func downloadpd1wpUsers() ([]*User, error) {
 		if len(fields) < 7 {
 			continue
 		}
+		unquoteFields(&fields)
 		id, err := stringToID(fields[0])
 		if err != nil {
 			return nil, err
@@ -880,6 +898,7 @@ func downloadpd1wpUsersNames() ([]*User, error) {
 		if len(fields) < 7 {
 			continue
 		}
+		unquoteFields(&fields)
 		id, err := stringToID(fields[0])
 		if err != nil {
 			return nil, err
@@ -907,6 +926,7 @@ func downloadOverrideUsers() ([]*User, error) {
 		if len(fields) < 7 {
 			continue
 		}
+		unquoteFields(&fields)
 		id, err := stringToID(fields[0])
 		if err != nil {
 			return nil, err
@@ -962,6 +982,7 @@ func downloadSpecialUsers(url string) ([]*User, error) {
 		if len(fields) < 7 {
 			continue
 		}
+		unquoteFields(&fields)
 		id, err := stringToID(fields[0])
 		if err != nil {
 			return nil, err
@@ -991,6 +1012,7 @@ func downloadReflectorUsers() ([]*User, error) {
 		if len(fields) < 2 {
 			continue
 		}
+		unquoteFields(&fields)
 		id, err := stringToID(fields[0])
 		if err != nil {
 			return nil, err
