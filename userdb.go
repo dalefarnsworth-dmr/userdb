@@ -430,6 +430,9 @@ func (u *User) amend(options *Options) {
 			length := len(u.City) - len(" (B,")
 			u.City = u.City[:length]
 		}
+		if u.Country == "UNITED STATES" {
+			u.Country = "United States"
+		}
 	}
 	if options.FixRomanNumerals {
 		u.Name = fixRomanNumerals(u.Name)
