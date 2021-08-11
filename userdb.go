@@ -63,19 +63,20 @@ var client = &http.Client{
 
 // Options - Optional changes to the user entries in the database
 type Options struct {
-	AbbrevCountries    bool
-	AbbrevDirections   bool
-	AbbrevStates       bool
-	CheckTitleCase     bool
-	FixRomanNumerals   bool
-	FixStateCountries  bool
-	MiscChanges        bool
-	RemoveCallFromNick bool
-	RemoveDupSurnames  bool
-	RemoveMatchingNick bool
-	RemoveRepeats      bool
-	TitleCase          bool
-	FilterByCountries  bool
+	AbbrevCountries     bool
+	AbbrevDirections    bool
+	AbbrevStates        bool
+	ChangeAbbreviations bool
+	CheckTitleCase      bool
+	FixRomanNumerals    bool
+	FixStateCountries   bool
+	MiscChanges         bool
+	RemoveCallFromNick  bool
+	RemoveDupSurnames   bool
+	RemoveMatchingNick  bool
+	RemoveRepeats       bool
+	TitleCase           bool
+	FilterByCountries   bool
 }
 
 // User - A structure holding information about a user in the databae
@@ -104,18 +105,19 @@ type UsersDB struct {
 }
 
 var DefaultOptions = &Options{
-	AbbrevCountries:    true,
-	AbbrevDirections:   true,
-	AbbrevStates:       true,
-	CheckTitleCase:     true,
-	FixRomanNumerals:   true,
-	FixStateCountries:  true,
-	MiscChanges:        true,
-	RemoveCallFromNick: true,
-	RemoveDupSurnames:  true,
-	RemoveMatchingNick: true,
-	RemoveRepeats:      true,
-	TitleCase:          true,
+	AbbrevCountries:     true,
+	AbbrevDirections:    true,
+	AbbrevStates:        true,
+	CheckTitleCase:      true,
+	ChangeAbbreviations: false,
+	FixRomanNumerals:    true,
+	FixStateCountries:   true,
+	MiscChanges:         true,
+	RemoveCallFromNick:  true,
+	RemoveDupSurnames:   true,
+	RemoveMatchingNick:  true,
+	RemoveRepeats:       true,
+	TitleCase:           true,
 }
 
 var downloadMergedUsersFuncs = []func() ([]*User, error){
@@ -216,7 +218,7 @@ func NewCuratedDB() (*UsersDB, error) {
 		progressFunc: func() error { return nil },
 	}
 
-	db.SetOptions(DefaultOptions)
+	db.options = DefaultOptions
 	db.getUsersFuncs = downloadCuratedUsersFuncs
 	err := db.getUsers()
 	if err != nil {
@@ -232,7 +234,7 @@ func NewMergedDB() (*UsersDB, error) {
 		progressFunc: func() error { return nil },
 	}
 
-	db.SetOptions(DefaultOptions)
+	db.options = DefaultOptions
 	db.getUsersFuncs = downloadMergedUsersFuncs
 	err := db.getUsers()
 	if err != nil {
@@ -248,7 +250,7 @@ func NewFileDB(path string) (*UsersDB, error) {
 		progressFunc: func() error { return nil },
 	}
 
-	db.SetOptions(DefaultOptions)
+	db.options = DefaultOptions
 	db.getUsersFuncs = readFileUsersFuncs(path)
 	err := db.getUsers()
 	if err != nil {
@@ -258,9 +260,44 @@ func NewFileDB(path string) (*UsersDB, error) {
 	return db, nil
 }
 
-// SetOptions - Set the the desired options for processing the DMR database
-func (db *UsersDB) SetOptions(options *Options) {
-	db.options = options
+func (db *UsersDB) SetOption(option string, value bool) error {
+	switch option {
+	case "AbbrevCountries":
+		db.options.AbbrevCountries = value
+		db.options.ChangeAbbreviations = true
+	case "AbbrevDirections":
+		db.options.AbbrevDirections = value
+		db.options.ChangeAbbreviations = true
+	case "AbbrevStates":
+		db.options.AbbrevStates = value
+		db.options.ChangeAbbreviations = true
+	case "ChangeAbbreviations":
+		db.options.ChangeAbbreviations = value
+	case "CheckTitleCase":
+		db.options.CheckTitleCase = value
+	case "FixRomanNumerals":
+		db.options.FixRomanNumerals = value
+	case "FixStateCountries":
+		db.options.FixStateCountries = value
+	case "MiscChanges":
+		db.options.MiscChanges = value
+	case "RemoveCallFromNick":
+		db.options.RemoveCallFromNick = value
+	case "RemoveDupSurnames":
+		db.options.RemoveDupSurnames = value
+	case "RemoveMatchingNick":
+		db.options.RemoveMatchingNick = value
+	case "RemoveRepeats":
+		db.options.RemoveRepeats = value
+	case "TitleCase":
+		db.options.TitleCase = value
+	case "FilterByCountries":
+		db.options.FilterByCountries = value
+	default:
+		return fmt.Errorf("bad option: %s", option)
+	}
+
+	return nil
 }
 
 // SetProgressCallback - Set callback function for progress of db operations.
@@ -367,21 +404,24 @@ func (u *User) amend(options *Options) {
 	if options.FixStateCountries {
 		u.fixStateCountries()
 	}
-	if options.AbbrevCountries {
-		u.Country = abbreviateCountry(u.Country)
-	} else {
-		u.Country = unAbbreviateCountry(u.Country)
+	if options.ChangeAbbreviations {
+		if options.AbbrevCountries {
+			u.Country = abbreviateCountry(u.Country)
+		} else {
+			u.Country = unAbbreviateCountry(u.Country)
+		}
+		if options.AbbrevStates {
+			u.State = abbreviateState(u.State, u.fullCountry)
+		} else {
+			u.State = unAbbreviateState(u.State, u.fullCountry)
+		}
+		if options.AbbrevDirections {
+			u.City = abbreviateDirections(u.City)
+			u.State = abbreviateDirections(u.State)
+			u.Country = abbreviateDirections(u.Country)
+		}
 	}
-	if options.AbbrevStates {
-		u.State = abbreviateState(u.State, u.fullCountry)
-	} else {
-		u.State = unAbbreviateState(u.State, u.fullCountry)
-	}
-	if options.AbbrevDirections {
-		u.City = abbreviateDirections(u.City)
-		u.State = abbreviateDirections(u.State)
-		u.Country = abbreviateDirections(u.Country)
-	}
+
 	if options.RemoveCallFromNick {
 		u.Nick = removeSubstr(u.Nick, u.Callsign)
 	}
@@ -1142,6 +1182,7 @@ func (db *UsersDB) Users() []*User {
 
 func (db *UsersDB) MD380String() string {
 	users := db.Users()
+
 	strs := make([]string, len(users))
 	for i, u := range users {
 		strs[i] = fmt.Sprintf("%d,%s,%s,%s,%s,%s,%s",
@@ -1152,6 +1193,9 @@ func (db *UsersDB) MD380String() string {
 }
 
 func (db *UsersDB) UV380Image() []byte {
+	db.SetOption("AbbrevCountries", false)
+	db.SetOption("AbbrevStates", false)
+
 	users := db.Users()
 
 	if len(users) > MaxUV380Users {
@@ -1282,6 +1326,9 @@ func (db *UsersDB) writeWithHeader() (err error) {
 		}
 		return
 	}()
+
+	db.SetOption("AbbrevCountries", true)
+	db.SetOption("AbbrevStates", true)
 
 	fmt.Fprintln(file, "Radio ID,CallSign,Name,City,State,Firstname,Country")
 	_, err = file.WriteString(db.MD380String())
