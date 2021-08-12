@@ -63,20 +63,20 @@ var client = &http.Client{
 
 // Options - Optional changes to the user entries in the database
 type Options struct {
-	AbbrevCountries     bool
-	AbbrevDirections    bool
-	AbbrevStates        bool
-	ChangeAbbreviations bool
-	CheckTitleCase      bool
-	FixRomanNumerals    bool
-	FixStateCountries   bool
-	MiscChanges         bool
-	RemoveCallFromNick  bool
-	RemoveDupSurnames   bool
-	RemoveMatchingNick  bool
-	RemoveRepeats       bool
-	TitleCase           bool
-	FilterByCountries   bool
+	AbbrevCountries        bool
+	AbbrevDirections       bool
+	AbbrevStates           bool
+	ChangeAbbreviations    bool
+	CheckTitleCase         bool
+	FixRomanNumerals       bool
+	FixStateCountries      bool
+	MiscChanges            bool
+	RemoveCallFromNickname bool
+	RemoveDupSurnames      bool
+	RemoveMatchingNickname bool
+	RemoveRepeats          bool
+	TitleCase              bool
+	FilterByCountries      bool
 }
 
 // User - A structure holding information about a user in the databae
@@ -86,7 +86,7 @@ type User struct {
 	Name        string
 	City        string
 	State       string
-	Nick        string
+	Nickname    string
 	Country     string
 	fullCountry string
 }
@@ -105,19 +105,19 @@ type UsersDB struct {
 }
 
 var DefaultOptions = &Options{
-	AbbrevCountries:     true,
-	AbbrevDirections:    true,
-	AbbrevStates:        true,
-	CheckTitleCase:      true,
-	ChangeAbbreviations: false,
-	FixRomanNumerals:    true,
-	FixStateCountries:   true,
-	MiscChanges:         true,
-	RemoveCallFromNick:  true,
-	RemoveDupSurnames:   true,
-	RemoveMatchingNick:  true,
-	RemoveRepeats:       true,
-	TitleCase:           true,
+	AbbrevCountries:        true,
+	AbbrevDirections:       true,
+	AbbrevStates:           true,
+	CheckTitleCase:         true,
+	ChangeAbbreviations:    false,
+	FixRomanNumerals:       true,
+	FixStateCountries:      true,
+	MiscChanges:            true,
+	RemoveCallFromNickname: true,
+	RemoveDupSurnames:      true,
+	RemoveMatchingNickname: true,
+	RemoveRepeats:          true,
+	TitleCase:              true,
 }
 
 var downloadMergedUsersFuncs = []func() ([]*User, error){
@@ -281,12 +281,12 @@ func (db *UsersDB) SetOption(option string, value bool) error {
 		db.options.FixStateCountries = value
 	case "MiscChanges":
 		db.options.MiscChanges = value
-	case "RemoveCallFromNick":
-		db.options.RemoveCallFromNick = value
+	case "RemoveCallFromNickname":
+		db.options.RemoveCallFromNickname = value
 	case "RemoveDupSurnames":
 		db.options.RemoveDupSurnames = value
-	case "RemoveMatchingNick":
-		db.options.RemoveMatchingNick = value
+	case "RemoveMatchingNickname":
+		db.options.RemoveMatchingNickname = value
 	case "RemoveRepeats":
 		db.options.RemoveRepeats = value
 	case "TitleCase":
@@ -386,7 +386,7 @@ func (u *User) amend(options *Options) {
 		u.Name = removeRepeats(u.Name)
 		u.City = removeRepeats(u.City)
 		u.State = removeRepeats(u.State)
-		u.Nick = removeRepeats(u.Nick)
+		u.Nickname = removeRepeats(u.Nickname)
 		u.Country = removeRepeats(u.Country)
 	}
 	if options.TitleCase {
@@ -395,10 +395,10 @@ func (u *User) amend(options *Options) {
 		u.State = titleCase(u.State)
 		u.Country = titleCase(u.Country)
 	}
-	if options.RemoveMatchingNick {
-		u.removeMatchingNicks()
+	if options.RemoveMatchingNickname {
+		u.removeMatchingNicknames()
 	} else {
-		u.addNicks()
+		u.addNicknames()
 	}
 	u.fullCountry = unAbbreviateCountry(u.Country)
 	if options.FixStateCountries {
@@ -422,8 +422,8 @@ func (u *User) amend(options *Options) {
 		}
 	}
 
-	if options.RemoveCallFromNick {
-		u.Nick = removeSubstr(u.Nick, u.Callsign)
+	if options.RemoveCallFromNickname {
+		u.Nickname = removeSubstr(u.Nickname, u.Callsign)
 	}
 	if options.MiscChanges {
 		if strings.HasSuffix(u.City, " (B,") {
@@ -452,7 +452,7 @@ func (u *User) normalize() {
 	u.Name = normalizeString(u.Name)
 	u.City = normalizeString(u.City)
 	u.State = normalizeString(u.State)
-	u.Nick = normalizeString(u.Nick)
+	u.Nickname = normalizeString(u.Nickname)
 	u.Country = normalizeString(u.Country)
 }
 
@@ -544,7 +544,7 @@ func checkTitleCase(users []*User) {
 			u.Name,
 			u.City,
 			u.State,
-			u.Nick,
+			u.Nickname,
 			u.Country,
 		}
 		for _, field := range fields {
@@ -576,17 +576,17 @@ func checkTitleCase(users []*User) {
 	fmt.Println("end of new upper-case words")
 }
 
-func (u *User) removeMatchingNicks() {
+func (u *User) removeMatchingNicknames() {
 	firstName := strings.SplitN(u.Name, " ", 2)[0]
-	if u.Nick == firstName {
-		u.Nick = ""
+	if u.Nickname == firstName {
+		u.Nickname = ""
 	}
 }
 
-func (u *User) addNicks() {
+func (u *User) addNicknames() {
 	firstName := strings.SplitN(u.Name, " ", 2)[0]
-	if u.Nick == "" {
-		u.Nick = firstName
+	if u.Nickname == "" {
+		u.Nickname = firstName
 	}
 }
 
@@ -756,7 +756,7 @@ func downloadCuratedUsers() ([]*User, error) {
 			Name:     fields[2],
 			City:     fields[3],
 			State:    fields[4],
-			Nick:     fields[5],
+			Nickname: fields[5],
 			Country:  fields[6],
 		}
 	}
@@ -815,7 +815,7 @@ func linesToUsers(url string, lines []string) ([]*User, error) {
 			Name:     fields[2],
 			City:     fields[3],
 			State:    fields[4],
-			Nick:     fields[5],
+			Nickname: fields[5],
 			Country:  fields[6],
 		}
 		users = append(users, user)
@@ -920,7 +920,7 @@ func downloadpd1wpUsers() ([]*User, error) {
 			Name:     fields[2],
 			City:     fields[3],
 			State:    fields[4],
-			Nick:     fields[5],
+			Nickname: fields[5],
 			Country:  fields[6],
 		}
 	}
@@ -947,9 +947,9 @@ func downloadpd1wpUsersNames() ([]*User, error) {
 			return nil, err
 		}
 		users[i] = &User{
-			ID:   id,
-			Name: fields[2],
-			Nick: fields[5],
+			ID:       id,
+			Name:     fields[2],
+			Nickname: fields[5],
 		}
 	}
 	return users, nil
@@ -980,7 +980,7 @@ func downloadOverrideUsers() ([]*User, error) {
 			Name:     fields[2],
 			City:     fields[3],
 			State:    fields[4],
-			Nick:     fields[5],
+			Nickname: fields[5],
 			Country:  fields[6],
 		}
 	}
@@ -1093,8 +1093,8 @@ func (db *UsersDB) mergeAndSortUsers() {
 		if u.State != "" {
 			existing.State = u.State
 		}
-		if u.Nick != "" {
-			existing.Nick = u.Nick
+		if u.Nickname != "" {
+			existing.Nickname = u.Nickname
 		}
 		if u.Country != "" {
 			existing.Country = u.Country
@@ -1189,7 +1189,7 @@ func (db *UsersDB) MD380String() string {
 	strs := make([]string, len(users))
 	for i, u := range users {
 		strs[i] = fmt.Sprintf("%d,%s,%s,%s,%s,%s,%s",
-			u.ID, u.Callsign, u.Name, u.City, u.State, u.Nick, u.Country)
+			u.ID, u.Callsign, u.Name, u.City, u.State, u.Nickname, u.Country)
 	}
 	strs[len(strs)-1] += "\n"
 	return strings.Join(strs, "\n")
@@ -1247,7 +1247,7 @@ func (db *UsersDB) UV380Image() []byte {
 
 		restFields := []string{
 			u.Name,
-			u.Nick,
+			u.Nickname,
 			u.City,
 			u.State,
 			u.Country,
@@ -1307,8 +1307,8 @@ func mergeUser(existing, u *User) *User {
 	if u.State != "" {
 		existing.State = u.State
 	}
-	if u.Nick != "" {
-		existing.Nick = u.Nick
+	if u.Nickname != "" {
+		existing.Nickname = u.Nickname
 	}
 	if u.Country != "" {
 		existing.Country = u.Country
