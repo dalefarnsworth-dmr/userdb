@@ -230,12 +230,14 @@ var stateAbbreviations map[string]map[string]string
 var titleCaseMap map[string]string
 var reverseCountryAbbreviations map[string]string
 var reverseStateAbbreviations map[string]map[string]string
+var reverseDirectionAbbreviations map[string]string
 
 func init() {
 	stateAbbreviations = make(map[string]map[string]string)
 	titleCaseMap = make(map[string]string)
 	reverseCountryAbbreviations = make(map[string]string)
 	reverseStateAbbreviations = make(map[string]map[string]string)
+	reverseDirectionAbbreviations = make(map[string]string)
 
 	// make reverse country abbreviations
 	for c, ac := range countryAbbreviations {
@@ -298,6 +300,16 @@ func init() {
 			}
 			stateAbbreviations[country][state] = abbrev
 		}
+	}
+
+	// make reverse direction abbreviations
+	for c, ac := range directionAbbreviations {
+		existing := reverseDirectionAbbreviations[ac]
+		if existing != "" {
+			l.Fatalf("%s has abbreviations %s & %s", c, existing, ac)
+
+		}
+		reverseDirectionAbbreviations[ac] = c
 	}
 
 	// make titleCaseMap
@@ -455,6 +467,10 @@ func (u *User) amend(db *UsersDB) {
 		u.City = abbreviateDirections(u.City)
 		u.State = abbreviateDirections(u.State)
 		u.Country = abbreviateDirections(u.Country)
+	} else {
+		u.City = unabbreviateDirections(u.City)
+		u.State = unabbreviateDirections(u.State)
+		u.Country = unabbreviateDirections(u.Country)
 	}
 
 	if db.removeCallFromNickname {
@@ -524,6 +540,15 @@ func (u *User) fixCallsigns() {
 func abbreviateDirections(field string) string {
 	words := strings.Split(field, " ")
 	dir, ok := directionAbbreviations[words[0]]
+	if ok {
+		words[0] = dir
+	}
+	return strings.Join(words, " ")
+}
+
+func unabbreviateDirections(field string) string {
+	words := strings.Split(field, " ")
+	dir, ok := reverseDirectionAbbreviations[words[0]]
 	if ok {
 		words[0] = dir
 	}
