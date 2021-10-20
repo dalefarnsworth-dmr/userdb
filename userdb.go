@@ -61,24 +61,6 @@ var client = &http.Client{
 	Timeout:   time.Duration(clientTimeout) * time.Second,
 }
 
-// Options - Optional changes to the user entries in the database
-type Options struct {
-	AbbrevCountries        bool
-	AbbrevDirections       bool
-	AbbrevStates           bool
-	ChangeAbbreviations    bool
-	CheckTitleCase         bool
-	FixRomanNumerals       bool
-	FixStateCountries      bool
-	MiscChanges            bool
-	RemoveCallFromNickname bool
-	RemoveDupSurnames      bool
-	RemoveMatchingNickname bool
-	RemoveRepeats          bool
-	TitleCase              bool
-	FilterByCountries      bool
-}
-
 // User - A structure holding information about a user in the databae
 type User struct {
 	ID          int
@@ -93,31 +75,142 @@ type User struct {
 
 // UsersDB - A structure holding information about the database of DMR users
 type UsersDB struct {
-	filename          string
-	getUsersFuncs     []func() ([]*User, error)
-	options           *Options
-	progressCallback  func(progressCounter int) error
-	progressFunc      func() error
-	progressIncrement int
-	progressCounter   int
-	users             []*User
-	IncludedCountries map[string]bool
+	filename               string
+	getUsersFuncs          []func() ([]*User, error)
+	progressCallback       func(progressCounter int) error
+	progressFunc           func() error
+	progressIncrement      int
+	progressCounter        int
+	users                  []*User
+	includedCountries      map[string]bool
+	abbreviateCountries    bool
+	abbreviateStates       bool
+	abbreviateDirections   bool
+	checkTitleCase         bool
+	fixRomanNumerals       bool
+	fixStateCountries      bool
+	miscFixes              bool
+	removeCallFromNickname bool
+	removeRepeatedSurnames bool
+	removeMatchingNickname bool
+	removeRepeats          bool
+	titleCase              bool
+	filterByCountries      bool
 }
 
-var DefaultOptions = &Options{
-	AbbrevCountries:        true,
-	AbbrevDirections:       true,
-	AbbrevStates:           true,
-	CheckTitleCase:         true,
-	ChangeAbbreviations:    false,
-	FixRomanNumerals:       true,
-	FixStateCountries:      true,
-	MiscChanges:            true,
-	RemoveCallFromNickname: true,
-	RemoveDupSurnames:      true,
-	RemoveMatchingNickname: true,
-	RemoveRepeats:          true,
-	TitleCase:              true,
+type DBOption func(db *UsersDB)
+
+func (db *UsersDB) SetOptions(opts ...DBOption) {
+	for _, opt := range opts {
+		opt(db)
+	}
+}
+
+func AbbreviateCountries(b bool) DBOption {
+	return func(db *UsersDB) {
+		db.abbreviateCountries = b
+	}
+}
+
+func AbbreviateStates(b bool) DBOption {
+	return func(db *UsersDB) {
+		db.abbreviateStates = b
+	}
+}
+
+func AbbreviateDirections(b bool) DBOption {
+	return func(db *UsersDB) {
+		db.abbreviateDirections = b
+	}
+}
+
+func Abbreviate(b bool) DBOption {
+	return func(db *UsersDB) {
+		db.abbreviateCountries = b
+		db.abbreviateStates = b
+		db.abbreviateDirections = b
+	}
+}
+
+func CheckTitleCase(b bool) DBOption {
+	return func(db *UsersDB) {
+		db.checkTitleCase = b
+	}
+}
+
+func FixRomanNumerals(b bool) DBOption {
+	return func(db *UsersDB) {
+		db.fixRomanNumerals = b
+	}
+}
+
+func FixStateCountries(b bool) DBOption {
+	return func(db *UsersDB) {
+		db.fixStateCountries = b
+	}
+}
+
+func MiscFixes(b bool) DBOption {
+	return func(db *UsersDB) {
+		db.miscFixes = b
+	}
+}
+
+func RemoveCallFromNickname(b bool) DBOption {
+	return func(db *UsersDB) {
+		db.removeCallFromNickname = b
+	}
+}
+
+func RemoveRepeatedSurnames(b bool) DBOption {
+	return func(db *UsersDB) {
+		db.removeRepeatedSurnames = b
+	}
+}
+
+func RemoveMatchingNickname(b bool) DBOption {
+	return func(db *UsersDB) {
+		db.removeMatchingNickname = b
+	}
+}
+
+func RemoveRepeats(b bool) DBOption {
+	return func(db *UsersDB) {
+		db.removeRepeats = b
+	}
+}
+
+func TitleCase(b bool) DBOption {
+	return func(db *UsersDB) {
+		db.titleCase = b
+	}
+}
+
+func FilterByCountries(countries ...string) DBOption {
+	return func(db *UsersDB) {
+		db.includedCountries = make(map[string]bool)
+		for _, country := range countries {
+			db.includedCountries[country] = true
+		}
+	}
+}
+
+func CuratedUsers() DBOption {
+	return func(db *UsersDB) {
+		db.getUsersFuncs = downloadMergedUsersFuncs
+	}
+}
+
+func MergeNewUsers() DBOption {
+	return func(db *UsersDB) {
+		db.getUsersFuncs = downloadMergedUsersFuncs
+	}
+}
+
+func FromFile(path string) DBOption {
+	return func(db *UsersDB) {
+		db.getUsersFuncs = readFileUsersFuncs(path)
+	}
 }
 
 var downloadMergedUsersFuncs = []func() ([]*User, error){
@@ -135,23 +228,23 @@ var downloadCuratedUsersFuncs = []func() ([]*User, error){
 
 var stateAbbreviations map[string]map[string]string
 var titleCaseMap map[string]string
-var reverseCountryAbbrevs map[string]string
-var reverseStateAbbrevs map[string]map[string]string
+var reverseCountryAbbreviations map[string]string
+var reverseStateAbbreviations map[string]map[string]string
 
 func init() {
 	stateAbbreviations = make(map[string]map[string]string)
 	titleCaseMap = make(map[string]string)
-	reverseCountryAbbrevs = make(map[string]string)
-	reverseStateAbbrevs = make(map[string]map[string]string)
+	reverseCountryAbbreviations = make(map[string]string)
+	reverseStateAbbreviations = make(map[string]map[string]string)
 
 	// make reverse country abbreviations
 	for c, ac := range countryAbbreviations {
-		existing := reverseCountryAbbrevs[ac]
+		existing := reverseCountryAbbreviations[ac]
 		if existing != "" {
 			l.Fatalf("%s has abbreviations %s & %s", c, existing, ac)
 
 		}
-		reverseCountryAbbrevs[ac] = c
+		reverseCountryAbbreviations[ac] = c
 	}
 
 	// add alternate country spellings
@@ -176,14 +269,14 @@ func init() {
 	for country, stateAbbreviations := range stateAbbreviationsByCountry {
 		for s, as := range stateAbbreviations {
 			country = strings.ToLower(country)
-			existing := reverseStateAbbrevs[country][as]
+			existing := reverseStateAbbreviations[country][as]
 			if existing != "" {
 				l.Fatalf("%s has abbreviations %s & %s", as, existing, s)
 			}
-			if reverseStateAbbrevs[country] == nil {
-				reverseStateAbbrevs[country] = make(map[string]string)
+			if reverseStateAbbreviations[country] == nil {
+				reverseStateAbbreviations[country] = make(map[string]string)
 			}
-			reverseStateAbbrevs[country][as] = s
+			reverseStateAbbreviations[country][as] = s
 		}
 	}
 
@@ -207,97 +300,40 @@ func init() {
 		}
 	}
 
+	// make titleCaseMap
 	for _, word := range titleCaseWords {
 		titleCaseMap[word] = strings.Title(word)
 	}
 }
 
-// CuratedDB - Instantiate a new users db and download curated users
-func NewCuratedDB() (*UsersDB, error) {
+// New Users DB - Instantiate a new users db and (by default) download curated users
+func New(opts ...DBOption) (*UsersDB, error) {
 	db := &UsersDB{
 		progressFunc: func() error { return nil },
 	}
 
-	db.options = DefaultOptions
+	db.abbreviateCountries = true
+	db.abbreviateDirections = true
+	db.abbreviateStates = true
+	db.checkTitleCase = true
+	db.fixRomanNumerals = true
+	db.fixStateCountries = true
+	db.miscFixes = true
+	db.removeCallFromNickname = true
+	db.removeRepeatedSurnames = true
+	db.removeMatchingNickname = true
+	db.removeRepeats = true
+	db.titleCase = true
 	db.getUsersFuncs = downloadCuratedUsersFuncs
+
+	db.SetOptions(opts...)
+
 	err := db.getUsers()
 	if err != nil {
 		return nil, err
 	}
 
 	return db, nil
-}
-
-// MergedDB - Instantiate a new users db ready to merge various sources
-func NewMergedDB() (*UsersDB, error) {
-	db := &UsersDB{
-		progressFunc: func() error { return nil },
-	}
-
-	db.options = DefaultOptions
-	db.getUsersFuncs = downloadMergedUsersFuncs
-	err := db.getUsers()
-	if err != nil {
-		return nil, err
-	}
-
-	return db, nil
-}
-
-// FileDB - Instantiate a new userdb ready to read from a file
-func NewFileDB(path string) (*UsersDB, error) {
-	db := &UsersDB{
-		progressFunc: func() error { return nil },
-	}
-
-	db.options = DefaultOptions
-	db.getUsersFuncs = readFileUsersFuncs(path)
-	err := db.getUsers()
-	if err != nil {
-		return nil, err
-	}
-
-	return db, nil
-}
-
-func (db *UsersDB) SetOption(option string, value bool) error {
-	switch option {
-	case "AbbrevCountries":
-		db.options.AbbrevCountries = value
-		db.options.ChangeAbbreviations = true
-	case "AbbrevDirections":
-		db.options.AbbrevDirections = value
-		db.options.ChangeAbbreviations = true
-	case "AbbrevStates":
-		db.options.AbbrevStates = value
-		db.options.ChangeAbbreviations = true
-	case "ChangeAbbreviations":
-		db.options.ChangeAbbreviations = value
-	case "CheckTitleCase":
-		db.options.CheckTitleCase = value
-	case "FixRomanNumerals":
-		db.options.FixRomanNumerals = value
-	case "FixStateCountries":
-		db.options.FixStateCountries = value
-	case "MiscChanges":
-		db.options.MiscChanges = value
-	case "RemoveCallFromNickname":
-		db.options.RemoveCallFromNickname = value
-	case "RemoveDupSurnames":
-		db.options.RemoveDupSurnames = value
-	case "RemoveMatchingNickname":
-		db.options.RemoveMatchingNickname = value
-	case "RemoveRepeats":
-		db.options.RemoveRepeats = value
-	case "TitleCase":
-		db.options.TitleCase = value
-	case "FilterByCountries":
-		db.options.FilterByCountries = value
-	default:
-		return fmt.Errorf("bad option: %s", option)
-	}
-
-	return nil
 }
 
 // SetProgressCallback - Set callback function for progress of db operations.
@@ -349,8 +385,8 @@ func abbreviateCountry(country string) string {
 	return abbrev
 }
 
-func unAbbreviateCountry(abbrev string) string {
-	country, ok := reverseCountryAbbrevs[abbrev]
+func unabbreviateCountry(abbrev string) string {
+	country, ok := reverseCountryAbbreviations[abbrev]
 	if !ok {
 		country = abbrev
 	}
@@ -367,8 +403,8 @@ func abbreviateState(state, country string) string {
 	return abbrev
 }
 
-func unAbbreviateState(abbrev, country string) string {
-	state, ok := reverseStateAbbrevs[strings.ToLower(country)][abbrev]
+func unabbreviateState(abbrev, country string) string {
+	state, ok := reverseStateAbbreviations[strings.ToLower(country)][abbrev]
 	if !ok {
 		state = abbrev
 	}
@@ -376,56 +412,55 @@ func unAbbreviateState(abbrev, country string) string {
 	return state
 }
 
-func (u *User) amend(options *Options) {
+func (u *User) amend(db *UsersDB) {
 	u.fixCallsigns()
 
-	if options.RemoveDupSurnames {
-		u.Name = removeDupSurnames(u.Name)
+	if db.removeRepeatedSurnames {
+		u.Name = removeRepeatedSurnames(u.Name)
 	}
-	if options.RemoveRepeats {
+	if db.removeRepeats {
 		u.Name = removeRepeats(u.Name)
 		u.City = removeRepeats(u.City)
 		u.State = removeRepeats(u.State)
 		u.Nickname = removeRepeats(u.Nickname)
 		u.Country = removeRepeats(u.Country)
 	}
-	if options.TitleCase {
+	if db.titleCase {
 		u.Name = titleCase(u.Name)
 		u.City = titleCase(u.City)
 		u.State = titleCase(u.State)
 		u.Country = titleCase(u.Country)
 	}
-	if options.RemoveMatchingNickname {
+	if db.removeMatchingNickname {
 		u.removeMatchingNicknames()
 	} else {
 		u.addNicknames()
 	}
-	u.fullCountry = unAbbreviateCountry(u.Country)
-	if options.FixStateCountries {
+	u.fullCountry = unabbreviateCountry(u.Country)
+	if db.fixStateCountries {
 		u.fixStateCountries()
 	}
-	if options.ChangeAbbreviations {
-		if options.AbbrevCountries {
-			u.Country = abbreviateCountry(u.Country)
-		} else {
-			u.Country = unAbbreviateCountry(u.Country)
-		}
-		if options.AbbrevStates {
-			u.State = abbreviateState(u.State, u.fullCountry)
-		} else {
-			u.State = unAbbreviateState(u.State, u.fullCountry)
-		}
-		if options.AbbrevDirections {
-			u.City = abbreviateDirections(u.City)
-			u.State = abbreviateDirections(u.State)
-			u.Country = abbreviateDirections(u.Country)
-		}
+
+	if db.abbreviateCountries {
+		u.Country = abbreviateCountry(u.Country)
+	} else {
+		u.Country = unabbreviateCountry(u.Country)
+	}
+	if db.abbreviateStates {
+		u.State = abbreviateState(u.State, u.fullCountry)
+	} else {
+		u.State = unabbreviateState(u.State, u.fullCountry)
+	}
+	if db.abbreviateDirections {
+		u.City = abbreviateDirections(u.City)
+		u.State = abbreviateDirections(u.State)
+		u.Country = abbreviateDirections(u.Country)
 	}
 
-	if options.RemoveCallFromNickname {
+	if db.removeCallFromNickname {
 		u.Nickname = removeSubstr(u.Nickname, u.Callsign)
 	}
-	if options.MiscChanges {
+	if db.miscFixes {
 		if strings.HasSuffix(u.City, " (B,") {
 			length := len(u.City) - len(" (B,")
 			u.City = u.City[:length]
@@ -434,7 +469,7 @@ func (u *User) amend(options *Options) {
 			u.Country = "United States"
 		}
 	}
-	if options.FixRomanNumerals {
+	if db.fixRomanNumerals {
 		u.Name = fixRomanNumerals(u.Name)
 	}
 
@@ -443,7 +478,7 @@ func (u *User) amend(options *Options) {
 
 func (db *UsersDB) amendUsers() {
 	for _, u := range db.users {
-		u.amend(db.options)
+		u.amend(db)
 	}
 }
 
@@ -495,7 +530,7 @@ func abbreviateDirections(field string) string {
 	return strings.Join(words, " ")
 }
 
-func removeDupSurnames(field string) string {
+func removeRepeatedSurnames(field string) string {
 	words := strings.Split(field, " ")
 	length := len(words)
 	if length < 3 || words[length-2] != words[length-1] {
@@ -1170,13 +1205,13 @@ func (db *UsersDB) getUsers() error {
 func (db *UsersDB) Users() []*User {
 	db.amendUsers()
 
-	if !db.options.FilterByCountries {
+	if len(db.includedCountries) == 0 {
 		return db.users
 	}
 
 	users := make([]*User, 0)
 	for _, user := range db.users {
-		if db.IncludedCountries[user.fullCountry] {
+		if db.includedCountries[user.fullCountry] {
 			users = append(users, user)
 		}
 	}
@@ -1196,8 +1231,7 @@ func (db *UsersDB) MD380String() string {
 }
 
 func (db *UsersDB) UV380Image() []byte {
-	db.SetOption("AbbrevCountries", false)
-	db.SetOption("AbbrevStates", false)
+	db.SetOptions(AbbreviateCountries(false), AbbreviateStates(false), AbbreviateDirections(false))
 
 	users := db.Users()
 
@@ -1287,13 +1321,6 @@ func (db *UsersDB) AllCountries() ([]string, error) {
 	return countries, nil
 }
 
-func (db *UsersDB) IncludeCountries(countries ...string) {
-	db.IncludedCountries = make(map[string]bool)
-	for _, country := range countries {
-		db.IncludedCountries[country] = true
-	}
-}
-
 func mergeUser(existing, u *User) *User {
 	if u.Callsign != "" {
 		existing.Callsign = u.Callsign
@@ -1330,8 +1357,7 @@ func (db *UsersDB) writeWithHeader() (err error) {
 		return
 	}()
 
-	db.SetOption("AbbrevCountries", true)
-	db.SetOption("AbbrevStates", true)
+	db.SetOptions(AbbreviateCountries(true), AbbreviateStates(true), AbbreviateDirections(true))
 
 	fmt.Fprintln(file, "Radio ID,CallSign,Name,City,State,Firstname,Country")
 	_, err = file.WriteString(db.MD380String())
