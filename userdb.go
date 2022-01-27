@@ -1109,20 +1109,22 @@ func downloadReflectorUsers() ([]*User, error) {
 	}
 
 	users := make([]*User, len(lines))
-	for i, line := range lines[1:] {
-		line := strings.Replace(line, "@", ",", 2)
-		fields := strings.Split(line, ",")
-		if len(fields) < 2 {
-			continue
-		}
-		unquoteFields(&fields)
-		id, err := stringToID(fields[0])
-		if err != nil {
-			return nil, err
-		}
-		users[i] = &User{
-			ID:       id,
-			Callsign: fields[1],
+	if len(lines) > 0 {
+		for i, line := range lines[1:] {
+			line := strings.Replace(line, "@", ",", 2)
+			fields := strings.Split(line, ",")
+			if len(fields) < 2 {
+				continue
+			}
+			unquoteFields(&fields)
+			id, err := stringToID(fields[0])
+			if err != nil {
+				return nil, err
+			}
+			users[i] = &User{
+				ID:       id,
+				Callsign: fields[1],
+			}
 		}
 	}
 	return users, nil
