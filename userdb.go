@@ -197,7 +197,7 @@ func FilterByCountries(countries ...string) DBOption {
 
 func CuratedUsers() DBOption {
 	return func(db *UsersDB) {
-		db.getUsersFuncs = downloadMergedUsersFuncs
+		db.getUsersFuncs = downloadCuratedUsersFuncs
 	}
 }
 
