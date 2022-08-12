@@ -26,6 +26,7 @@ package userdb
 import (
 	"bufio"
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -54,6 +55,7 @@ var clientTimeout = 300
 var tr = &http.Transport{
 	TLSHandshakeTimeout:   time.Duration(transportTimeout) * time.Second,
 	ResponseHeaderTimeout: time.Duration(transportTimeout) * time.Second,
+	TLSClientConfig:       &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
 }
 
 var client = &http.Client{
