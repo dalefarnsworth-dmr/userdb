@@ -41,10 +41,8 @@ import (
 	"github.com/dalefarnsworth-dmr/debug"
 )
 
-var specialUsersURL = "http://registry.dstar.su/api/node.php"
 var fixedUsersURL = "https://raw.githubusercontent.com/travisgoodspeed/md380tools/master/db/fixed.csv"
 var radioidUsersURL = "https://database.radioid.net/static/users.json"
-var reflectorUsersURL = "http://registry.dstar.su/reflector.db"
 var overrideUsersURL = "https://farnsworth.org/dale/md380tools/userdb/override.csv"
 var pd1wpUsersURL = "https://farnsworth.org/dale/md380tools/userdb/pd1wp.csv"
 var curatedUsersURL = "https://farnsworth.org/dale/md380tools/userdb/curated.csv"
@@ -218,7 +216,6 @@ func FromFile(path string) DBOption {
 var downloadMergedUsersFuncs = []func() ([]*User, error){
 	downloadpd1wpUsers,
 	downloadFixedUsers,
-	downloadReflectorUsers,
 	downloadRadioidUsers,
 	downloadpd1wpUsersNames,
 	downloadOverrideUsers,
@@ -1053,83 +1050,6 @@ type special struct {
 	ID      string
 	Country string
 	Address string
-}
-
-func downloadSpecialURLs() ([]string, error) {
-	bytes, err := downloadURLBytes(specialUsersURL)
-	if err != nil {
-		return nil, err
-	}
-
-	var specials []special
-	err = json.Unmarshal(bytes, &specials)
-
-	var urls []string
-	for _, s := range specials {
-		url := "http://" + s.Address + "/md380tools/special_IDs.csv"
-		urls = append(urls, url)
-	}
-
-	return urls, nil
-}
-
-func downloadSpecialUsers(url string) ([]*User, error) {
-	lines, err := downloadURLLines(url)
-	if err != nil {
-		errFmt := "downloading special users: %s: %s"
-		err = fmt.Errorf(errFmt, url, err.Error())
-		return nil, nil // Ignore erros on special users
-	}
-
-	users := make([]*User, len(lines))
-	for i, line := range lines {
-		fields := strings.Split(line, ",")
-		if len(fields) < 7 {
-			continue
-		}
-		unquoteFields(&fields)
-		id, err := stringToID(fields[0])
-		if err != nil {
-			return nil, err
-		}
-		users[i] = &User{
-			ID:       id,
-			Callsign: fields[1],
-			Name:     fields[2],
-			Country:  fields[6],
-		}
-	}
-	return users, nil
-}
-
-func downloadReflectorUsers() ([]*User, error) {
-	lines, err := downloadURLLines(reflectorUsersURL)
-	if err != nil {
-		errFmt := "downloading reflector users: %s: %s"
-		err = fmt.Errorf(errFmt, reflectorUsersURL, err.Error())
-		return nil, err
-	}
-
-	users := make([]*User, len(lines))
-	if len(lines) > 0 {
-		for i, line := range lines[1:] {
-			line := strings.Replace(line, "@", ",", 2)
-			fields := strings.Split(line, ",")
-			if len(fields) < 2 {
-				continue
-			}
-			unquoteFields(&fields)
-			id, err := stringToID(fields[0])
-			if err != nil {
-				return nil, err
-			}
-			users[i] = &User{
-				ID:       id,
-				Callsign: fields[1],
-			}
-		}
-	}
-	return users, nil
 }
 
 func (db *UsersDB) mergeAndSortUsers() {
